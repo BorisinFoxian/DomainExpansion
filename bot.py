@@ -40,6 +40,15 @@ BLACK_FLASH_IMAGES = [
     "https://i.ibb.co/MyWtSxWr/ezgif-com-video-to-gif-converter-4.gif",
 ]
 VIOLENCE_GIF = "https://i.ibb.co/JWkhTZhK/ezgif-com-video-to-gif-converter-5.gif"
+# GIFs dos comandos exclusivos da Violette. Troque as URLs quando quiser outro GIF.
+SUKUNA_GIFS = {
+    "aura": "https://media.tenor.com/0FxSr1qzukYAAAAM/sukuna-heian.gif",
+    "cabeca_alta": "https://media.tenor.com/26YzCrAOPwgAAAAM/sukuna-sukuna-smile.gif",
+    "careca": "https://media.tenor.com/7u_xATOhq6YAAAAM/sukuna-ryomen.gif",
+    "dismantle": "https://media.tenor.com/95EhrnMPm5sAAAAM/sukuna-cleave.gif",
+    "cleave": "https://media.tenor.com/8x3juyL02isAAAAM/sukuna-malevolent-shrine.gif",
+}
+MAXIMO_ALVOS = 5
 IMAGEM_ESPECIAL = "https://i.ibb.co/BHn9kMQW/074f2fdc35f01d4bc3c0565f9c83ea24-3316428614160596671-ezgif-com-resize.gif"
 IMAGEM_NORMAL = "https://i.ibb.co/nNKNnHs9/undefined-Imgur-ezgif-com-resize.gif"
 CURSED_ENERGY_LEVELS = [
@@ -334,6 +343,113 @@ def violence_embed(attacker: discord.abc.User, target: discord.abc.User) -> disc
     embed.set_image(url=VIOLENCE_GIF)
     return embed
 
+
+def somente_violette(user_id: int) -> bool:
+    return user_id == VIOLETTE_ID
+
+
+def coletar_alvos(*membros: discord.Member | None) -> list[discord.Member]:
+    """Remove duplicados e valores vazios, preservando a ordem das menções."""
+    vistos: set[int] = set()
+    alvos: list[discord.Member] = []
+    for membro in membros:
+        if membro is not None and membro.id not in vistos:
+            vistos.add(membro.id)
+            alvos.append(membro)
+    return alvos[:MAXIMO_ALVOS]
+
+
+def validar_alvos(autora: discord.abc.User, alvos: list[discord.Member]) -> str | None:
+    if not alvos:
+        return "Mencione pelo menos uma pessoa."
+    if any(alvo.bot for alvo in alvos):
+        return "Você não pode usar esse comando em bots."
+    if any(alvo.id == autora.id for alvo in alvos):
+        return "Você não pode usar esse comando em si mesma."
+    return None
+
+
+def listar_alvos(alvos: list[discord.Member]) -> str:
+    mentions = [alvo.mention for alvo in alvos]
+    if len(mentions) == 1:
+        return mentions[0]
+    return f"{', '.join(mentions[:-1])} e {mentions[-1]}"
+
+
+def sukuna_embed(titulo: str, descricao: str, gif: str) -> discord.Embed:
+    embed = discord.Embed(title=titulo, description=descricao, color=COLOR)
+    embed.set_image(url=gif)
+    embed.set_footer(text="Malevolent Shrine • Domínio da Violette")
+    return embed
+
+
+def aura_embed(autora: discord.abc.User) -> discord.Embed:
+    return sukuna_embed(
+        "✦ A Rainha das Maldições ficou online",
+        f"**{autora.mention} apareceu.**\n"
+        "O ar pesou, a energia amaldiçoada subiu e o farm de aura começou.\n"
+        "**+9999 de aura** — e ninguém aqui tem como competir.",
+        SUKUNA_GIFS["aura"],
+    )
+
+
+def cabeca_alta_embed(autora: discord.abc.User, alvos: list[discord.Member]) -> discord.Embed:
+    plural = len(alvos) > 1
+    return sukuna_embed(
+        "✦ Cabeça alta demais",
+        f"**{autora.mention} reparou em {listar_alvos(alvos)}.**\n"
+        + ("As cabeças de vocês estão altas demais.\n" if plural else "Sua cabeça está alta demais.\n")
+        + ("Fiquem parados que eu ajusto a altura." if plural else "Fica parado que eu ajusto a altura."),
+        SUKUNA_GIFS["cabeca_alta"],
+    )
+
+
+def careca_embed(autora: discord.abc.User, alvos: list[discord.Member]) -> discord.Embed:
+    plural = len(alvos) > 1
+    return sukuna_embed(
+        "✦ Corte de cabelo do Rei das Maldições",
+        f"**{autora.mention} passa a lâmina rente ao couro cabeludo de {listar_alvos(alvos)}.**\n"
+        f"Não sobrou um fio: {'estão carecas' if plural else 'está careca'} e ainda por cima humilhad"
+        + ("os" if plural else "o") + ".",
+        SUKUNA_GIFS["careca"],
+    )
+
+
+def dismantle_embed(autora: discord.abc.User, alvos: list[discord.Member]) -> discord.Embed:
+    plural = len(alvos) > 1
+    return sukuna_embed(
+        "✦ Dismantle",
+        f"**{autora.mention} traça um único corte no ar.**\n"
+        f"{listar_alvos(alvos)} {'são retalhados' if plural else 'é retalhado'} em pedaços "
+        f"antes {'de entenderem' if plural else 'de entender'} o que aconteceu.\n"
+        "O chão não teve tempo nem de manchar.",
+        SUKUNA_GIFS["dismantle"],
+    )
+
+
+def cleave_embed(autora: discord.abc.User, alvos: list[discord.Member]) -> discord.Embed:
+    return sukuna_embed(
+        "✦ Cleave",
+        f"**{autora.mention} ajusta a lâmina à energia amaldiçoada de {listar_alvos(alvos)}.**\n"
+        "O corte atravessa carne, osso e alma de uma vez só.\n"
+        "Não sobrou nada para enterrar.",
+        SUKUNA_GIFS["cleave"],
+    )
+
+
+async def enviar_comando_violette(message: discord.Message, prefix: str, uso: str, criar_embed) -> None:
+    """Executa um comando exclusivo da Violette pela versão com prefixo."""
+    if not somente_violette(message.author.id):
+        await message.channel.send("❌ Você não pode usar esse comando.")
+        return
+    alvos = coletar_alvos(*message.mentions)
+    erro = validar_alvos(message.author, alvos)
+    if erro:
+        await message.channel.send(f"{erro} Uso: `{prefix}{uso} @membro` (até {MAXIMO_ALVOS}).")
+        return
+    await message.channel.send(embed=criar_embed(message.author, alvos))
+
+
 def roll_cursed_energy(user_id):
     if user_id == VIOLETTE_ID:
         return {
@@ -484,6 +600,18 @@ Tenta realizar um Black Flash.
 
 `/violence @membro`
 Comando especial reservado.
+
+`/aura`
+Anuncia que a Violette ficou online e está farmando aura. (exclusivo)
+
+`/cabeca_alta @membro`
+A cabeça de alguém está alta demais. (exclusivo)
+
+`/careca @membro`
+Deixa a(s) pessoa(s) careca(s). (exclusivo)
+
+`/dismantle @membro` e `/cleave @membro`
+Cortes brutais demais. (exclusivos)
 """
         ),
 
@@ -1173,6 +1301,24 @@ class MyClient(discord.Client):
                 embed=violence_embed(message.author, alvo)
             )
 
+        elif command == "aura":
+            if not somente_violette(message.author.id):
+                await message.channel.send("❌ Você não pode usar esse comando.")
+                return
+            await message.channel.send(embed=aura_embed(message.author))
+
+        elif command in ("cabecaalta", "cabeca_alta"):
+            await enviar_comando_violette(message, prefix, "cabecaalta", cabeca_alta_embed)
+
+        elif command == "careca":
+            await enviar_comando_violette(message, prefix, "careca", careca_embed)
+
+        elif command in ("dismantle", "desmantelar"):
+            await enviar_comando_violette(message, prefix, "dismantle", dismantle_embed)
+
+        elif command in ("cleave", "retalhar"):
+            await enviar_comando_violette(message, prefix, "cleave", cleave_embed)
+
         elif command in ("darrolls", "dar_rolls"):
             if not admin:
                 await message.channel.send("Você precisa ser administrador.")
@@ -1585,6 +1731,75 @@ async def violence(interaction: discord.Interaction, alvo: discord.Member):
     await interaction.response.send_message(
         embed=violence_embed(interaction.user, alvo)
     )
+
+
+async def responder_comando_violette(interaction: discord.Interaction, alvos: list[discord.Member], criar_embed) -> None:
+    """Executa um comando exclusivo da Violette pela versão de barra."""
+    if not somente_violette(interaction.user.id):
+        await respond(interaction, "❌ Você não pode usar esse comando.")
+        return
+    erro = validar_alvos(interaction.user, alvos)
+    if erro:
+        await respond(interaction, erro)
+        return
+    await respond(interaction, embed=criar_embed(interaction.user, alvos))
+
+
+@bot.tree.command(name="aura", description="A Violette ficou online e o farm de aura começou.")
+async def aura(interaction: discord.Interaction):
+    if not somente_violette(interaction.user.id):
+        await respond(interaction, "❌ Você não pode usar esse comando.")
+        return
+    await respond(interaction, embed=aura_embed(interaction.user))
+
+
+@bot.tree.command(name="cabeca_alta", description="A cabeça de alguém está alta demais.")
+async def cabeca_alta(
+    interaction: discord.Interaction,
+    alvo: discord.Member,
+    alvo2: discord.Member | None = None,
+    alvo3: discord.Member | None = None,
+    alvo4: discord.Member | None = None,
+    alvo5: discord.Member | None = None,
+):
+    await responder_comando_violette(interaction, coletar_alvos(alvo, alvo2, alvo3, alvo4, alvo5), cabeca_alta_embed)
+
+
+@bot.tree.command(name="careca", description="Deixa alguém completamente careca.")
+async def careca(
+    interaction: discord.Interaction,
+    alvo: discord.Member,
+    alvo2: discord.Member | None = None,
+    alvo3: discord.Member | None = None,
+    alvo4: discord.Member | None = None,
+    alvo5: discord.Member | None = None,
+):
+    await responder_comando_violette(interaction, coletar_alvos(alvo, alvo2, alvo3, alvo4, alvo5), careca_embed)
+
+
+@bot.tree.command(name="dismantle", description="Retalha alguém com um corte brutal.")
+async def dismantle(
+    interaction: discord.Interaction,
+    alvo: discord.Member,
+    alvo2: discord.Member | None = None,
+    alvo3: discord.Member | None = None,
+    alvo4: discord.Member | None = None,
+    alvo5: discord.Member | None = None,
+):
+    await responder_comando_violette(interaction, coletar_alvos(alvo, alvo2, alvo3, alvo4, alvo5), dismantle_embed)
+
+
+@bot.tree.command(name="cleave", description="Um corte que atravessa carne, osso e alma.")
+async def cleave(
+    interaction: discord.Interaction,
+    alvo: discord.Member,
+    alvo2: discord.Member | None = None,
+    alvo3: discord.Member | None = None,
+    alvo4: discord.Member | None = None,
+    alvo5: discord.Member | None = None,
+):
+    await responder_comando_violette(interaction, coletar_alvos(alvo, alvo2, alvo3, alvo4, alvo5), cleave_embed)
+
 
 if not TOKEN:
     raise RuntimeError("DISCORD_TOKEN não foi encontrado no arquivo .env")
