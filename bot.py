@@ -178,12 +178,6 @@ def ensure_profile(guild_id: int, user_id: int) -> None:
         conn.execute("INSERT OR IGNORE INTO profiles (guild_id, user_id) VALUES (?, ?)", (guild_id, user_id))
 
 
-def set_profile_text(guild_id: int, user_id: int, field: str, value: str | None) -> None:
-    ensure_profile(guild_id, user_id)
-    with db() as conn:
-        conn.execute(f"UPDATE profiles SET {field}=? WHERE guild_id=? AND user_id=?", (value, guild_id, user_id))
-
-
 def set_profile_energy(guild_id: int, user_id: int, nome: str | None, valor: int) -> None:
     ensure_profile(guild_id, user_id)
     with db() as conn:
@@ -193,10 +187,24 @@ def set_profile_energy(guild_id: int, user_id: int, nome: str | None, valor: int
         )
 
 
+# Consultas fixas por campo: nada de SQL montado com interpolação de string.
+SQL_AJUSTAR_INTEIRO = {
+    "points": "UPDATE profiles SET points=MAX(0, points+?) WHERE guild_id=? AND user_id=?",
+    "rolls": "UPDATE profiles SET rolls=MAX(0, rolls+?) WHERE guild_id=? AND user_id=?",
+    "balance": "UPDATE profiles SET balance=MAX(0, balance+?) WHERE guild_id=? AND user_id=?",
+}
+
+SQL_INVESTIR_ATRIBUTO = {
+    "strength": "UPDATE profiles SET points=points-1, strength=strength+1 WHERE guild_id=? AND user_id=?",
+    "defense": "UPDATE profiles SET points=points-1, defense=defense+1 WHERE guild_id=? AND user_id=?",
+    "energy": "UPDATE profiles SET points=points-1, energy=energy+1 WHERE guild_id=? AND user_id=?",
+}
+
+
 def adjust_profile_int(guild_id: int, user_id: int, field: str, delta: int) -> None:
     ensure_profile(guild_id, user_id)
     with db() as conn:
-        conn.execute(f"UPDATE profiles SET {field}=MAX(0, {field}+?) WHERE guild_id=? AND user_id=?", (delta, guild_id, user_id))
+        conn.execute(SQL_AJUSTAR_INTEIRO[field], (delta, guild_id, user_id))
 
 
 _original_send_message = InteractionResponse.send_message
@@ -1180,7 +1188,7 @@ class MyClient(discord.Client):
                     await message.channel.send("Você não tem pontos livres.")
                 else:
                     with db() as conn:
-                        conn.execute(f"UPDATE profiles SET points=points-1, {attribute}={attribute}+1 WHERE guild_id=? AND user_id=?", (message.guild.id, message.author.id))
+                        conn.execute(SQL_INVESTIR_ATRIBUTO[attribute], (message.guild.id, message.author.id))
                     await message.channel.send(f"1 ponto investido em **{args[0].title()}**.")
         elif command in ("darpontos", "status_pontos"):
             if not admin:
@@ -1563,7 +1571,7 @@ async def status(interaction: discord.Interaction, membro: discord.Member | None
 async def status_investir(interaction: discord.Interaction, atributo: app_commands.Choice[str]):
     p = profile(interaction.guild_id, interaction.user.id)
     if p["points"] < 1: await interaction.response.send_message("Você não tem pontos livres."); return
-    with db() as conn: conn.execute(f"UPDATE profiles SET points=points-1, {atributo.value}={atributo.value}+1 WHERE guild_id=? AND user_id=?", (interaction.guild_id, interaction.user.id))
+    with db() as conn: conn.execute(SQL_INVESTIR_ATRIBUTO[atributo.value], (interaction.guild_id, interaction.user.id))
     await interaction.response.send_message(f"1 ponto investido em **{atributo.name}**.")
 
 
