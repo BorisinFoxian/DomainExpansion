@@ -6,6 +6,7 @@ import re
 import secrets
 import shlex
 import sqlite3
+import unicodedata
 from datetime import datetime, timedelta, timezone
 
 import discord
@@ -55,6 +56,7 @@ CURSED_ENERGY_LEVELS = [
     {
         "nome": "Energia Amaldiçoada Baixa",
         "chance": 70,
+        "valor": 10,
         "imagem": "https://i.ibb.co/27QhzQRp/965ecb70c91beccff6acddd7c9c37433.gif",
         "descricao": "Pouca energia amaldiçoada."
     },
@@ -62,6 +64,7 @@ CURSED_ENERGY_LEVELS = [
     {
         "nome": "Energia Amaldiçoada Moderada",
         "chance": 18,
+        "valor": 25,
         "imagem": "https://i.ibb.co/GQCbJSZW/867fca83c5b2f3a0da01e22a16be4971.gif",
         "descricao": "Um nível equilibrado de energia."
     },
@@ -69,6 +72,7 @@ CURSED_ENERGY_LEVELS = [
     {
         "nome": "Energia Amaldiçoada Alta",
         "chance": 5,
+        "valor": 50,
         "imagem": "https://i.ibb.co/nNg8zq2M/94e4bfba3db7617ba7a754f0cf64b193.gif",
         "descricao": "Grandes reservas de energia amaldiçoada."
     },
@@ -76,6 +80,7 @@ CURSED_ENERGY_LEVELS = [
     {
         "nome": "Sem Energia Amaldiçoada",
         "chance": 3,
+        "valor": 0,
         "imagem": "https://i.ibb.co/nMvJMXk3/8905af5c62a3ea0c3ed8d8d61962fe1e.gif",
         "descricao": "Quantidade inexistente de energia amaldiçoada."
     },
@@ -83,6 +88,7 @@ CURSED_ENERGY_LEVELS = [
     {
         "nome": "Energia Amaldiçoada Massiva",
         "chance": 2.8,
+        "valor": 80,
         "imagem": "https://i.ibb.co/BV930KHG/0becc1f20de8909c7daa826c1221af67.gif",
         "descricao": "Uma quantidade extremamente rara."
     },
@@ -90,6 +96,7 @@ CURSED_ENERGY_LEVELS = [
     {
         "nome": "Energia Amaldiçoada Irrestrita",
         "chance": 1,
+        "valor": 120,
         "imagem": "https://i.ibb.co/gFtb59CY/ezgif-com-resize.gif",
         "descricao": "Uma energia amaldiçoada colossal proveniente de uma Restrição Celestial. Sua quantidade é anormal, mas está ligada a uma condição de sacrifício."
     },
@@ -97,6 +104,7 @@ CURSED_ENERGY_LEVELS = [
     {
         "nome": "Energia Amaldiçoada Transcendente",
         "chance": 0.2,
+        "valor": 200,
         "imagem": "https://i.ibb.co/bM6QSPWd/82900bf8197817eb9b94f18579ae402d.gif",
         "descricao": "Uma existência fora da escala conhecida."
     }
@@ -121,7 +129,8 @@ def initialize_database():
             CREATE TABLE IF NOT EXISTS profiles (
                 guild_id INTEGER NOT NULL, user_id INTEGER NOT NULL, points INTEGER NOT NULL DEFAULT 0,
                 strength INTEGER NOT NULL DEFAULT 0, defense INTEGER NOT NULL DEFAULT 0, energy INTEGER NOT NULL DEFAULT 0,
-                cursed_energy TEXT DEFAULT NULL, balance INTEGER NOT NULL DEFAULT 0, rolls INTEGER NOT NULL DEFAULT 5,
+                cursed_energy TEXT DEFAULT NULL, cursed_energy_value INTEGER NOT NULL DEFAULT 0,
+                balance INTEGER NOT NULL DEFAULT 0, rolls INTEGER NOT NULL DEFAULT 5,
                 last_checkin TEXT, PRIMARY KEY(guild_id, user_id));
             CREATE TABLE IF NOT EXISTS items (
                 id INTEGER PRIMARY KEY AUTOINCREMENT, guild_id INTEGER NOT NULL, code TEXT NOT NULL,
@@ -142,12 +151,20 @@ def initialize_database():
 
         for statement in (
             "ALTER TABLE profiles ADD COLUMN cursed_energy TEXT DEFAULT NULL",
+            "ALTER TABLE profiles ADD COLUMN cursed_energy_value INTEGER NOT NULL DEFAULT 0",
             "ALTER TABLE profiles ADD COLUMN rolls INTEGER NOT NULL DEFAULT 5",
         ):
             try:
                 conn.execute(statement)
             except sqlite3.OperationalError:
                 pass
+
+        # Preenche o valor dos perfis que já tinham uma energia salva.
+        for energia in CURSED_ENERGY_LEVELS:
+            conn.execute(
+                "UPDATE profiles SET cursed_energy_value=? WHERE cursed_energy=? AND cursed_energy_value=0",
+                (energia["valor"], energia["nome"]),
+            )
 
 
 def profile(guild_id: int, user_id: int):
@@ -165,6 +182,15 @@ def set_profile_text(guild_id: int, user_id: int, field: str, value: str | None)
     ensure_profile(guild_id, user_id)
     with db() as conn:
         conn.execute(f"UPDATE profiles SET {field}=? WHERE guild_id=? AND user_id=?", (value, guild_id, user_id))
+
+
+def set_profile_energy(guild_id: int, user_id: int, nome: str | None, valor: int) -> None:
+    ensure_profile(guild_id, user_id)
+    with db() as conn:
+        conn.execute(
+            "UPDATE profiles SET cursed_energy=?, cursed_energy_value=? WHERE guild_id=? AND user_id=?",
+            (nome, valor, guild_id, user_id),
+        )
 
 
 def adjust_profile_int(guild_id: int, user_id: int, field: str, delta: int) -> None:
@@ -450,10 +476,24 @@ async def enviar_comando_violette(message: discord.Message, prefix: str, uso: st
     await message.channel.send(embed=criar_embed(message.author, alvos))
 
 
+def energia_por_nome(nome: str) -> dict | None:
+    """Busca um nível de energia pelo nome, ignorando acentos e maiúsculas."""
+    def normalizar(texto: str) -> str:
+        sem_acento = unicodedata.normalize("NFKD", texto)
+        return "".join(c for c in sem_acento if not unicodedata.combining(c)).casefold().strip()
+
+    alvo = normalizar(nome)
+    for energia in CURSED_ENERGY_LEVELS:
+        if normalizar(energia["nome"]) == alvo:
+            return energia
+    return None
+
+
 def roll_cursed_energy(user_id):
     if user_id == VIOLETTE_ID:
         return {
             "nome": "Energia Amaldiçoada Transcendente",
+            "valor": 200,
             "imagem": "https://i.ibb.co/bM6QSPWd/82900bf8197817eb9b94f18579ae402d.gif",
             "descricao": "Uma anomalia absoluta. Sua energia amaldiçoada ultrapassa todos os limites conhecidos."
         }
@@ -492,11 +532,13 @@ def criar_roll(guild_id: int, user_id: int):
             """
             UPDATE profiles
             SET rolls = rolls - 1,
-                cursed_energy = ?
+                cursed_energy = ?,
+                cursed_energy_value = ?
             WHERE guild_id=? AND user_id=?
             """,
             (
                 resultado["nome"],
+                resultado["valor"],
                 guild_id,
                 user_id
             )
@@ -507,6 +549,29 @@ def criar_roll(guild_id: int, user_id: int):
 def quantidade_rolls(guild_id: int, user_id: int):
     p = profile(guild_id, user_id)
     return p["rolls"]
+
+def energia_embed(usuario: discord.abc.User, resultado: dict) -> discord.Embed:
+    embed = discord.Embed(title="✦ Resultado da Energia Amaldiçoada", color=COLOR)
+    embed.add_field(name="Usuário", value=usuario.mention, inline=False)
+    embed.add_field(name="Energia Obtida", value=f"⚫ {resultado['nome']}", inline=False)
+    embed.add_field(name="Valor", value=str(resultado["valor"]), inline=False)
+    embed.add_field(name="Descrição", value=resultado["descricao"], inline=False)
+    embed.set_image(url=resultado["imagem"])
+    return embed
+
+
+def descricao_energia(perfil) -> str:
+    if not perfil["cursed_energy"]:
+        return "Não definida"
+    return f"{perfil['cursed_energy']} (valor **{perfil['cursed_energy_value']}**)"
+
+
+def listar_niveis_energia() -> str:
+    return "\n\n".join(
+        f"**{energia['nome']}**\nChance: `{energia['chance']}%` · Valor: `{energia['valor']}`\n{energia['descricao']}"
+        for energia in sorted(CURSED_ENERGY_LEVELS, key=lambda e: e["valor"], reverse=True)
+    )
+
 
 def help_embed(section: str = "início") -> discord.Embed:
     content = {
@@ -533,6 +598,9 @@ Categorias:
 - Energia
 - Rolls
 - Investir pontos
+
+⚫ Energia Amaldiçoada
+- Níveis, chances e valores
 
 💰 Economia
 - Saldo
@@ -571,7 +639,8 @@ Comandos de RPG:
 Mostra atributos, energia e saldo.
 
 `/energia` ou `*energia`
-Gera uma nova Energia Amaldiçoada.
+Gera uma nova Energia Amaldiçoada (gasta 1 roll).
+Veja a seção **Energia Amaldiçoada** para os níveis e valores.
 
 `/rolls` ou `*rolls`
 Mostra quantos rolls você possui.
@@ -581,6 +650,17 @@ Investe pontos livres em atributos.
 
 Exemplos:
 `/status_investir atributo:strength`
+"""
+        ),
+
+        "energia": (
+            "ENERGIA AMALDIÇOADA",
+            f"""
+Cada roll de `/energia` sorteia um nível. O nível fica salvo no seu perfil junto com o **valor** dele, que aparece no `/status`.
+
+{listar_niveis_energia()}
+
+Administradores podem definir ou remover o nível de alguém com `/dar_energia` e `/remover_energia`.
 """
         ),
 
@@ -789,6 +869,11 @@ class HelpView(discord.ui.View):
             discord.SelectOption(
                 label="RPG",
                 value="rpg"
+            ),
+
+            discord.SelectOption(
+                label="Energia Amaldiçoada",
+                value="energia"
             ),
 
             discord.SelectOption(
@@ -1007,7 +1092,7 @@ class MyClient(discord.Client):
                 desc = (
                     f"Pontos livres: **{p['points']}**\n"
                     f"Força: **{p['strength']}** · Defesa: **{p['defense']}** · Energia: **{p['energy']}**\n"
-                    f"Energia Amaldiçoada: **{p['cursed_energy'] or 'Não definida'}**\n"
+                    f"Energia Amaldiçoada: {descricao_energia(p)}\n"
                     f"Saldo: **{p['balance']} moedas**"
                 )
                 await message.channel.send(embed=discord.Embed(title=f"⚔️ Status de {member.display_name}", description=desc, color=COLOR))
@@ -1241,34 +1326,7 @@ class MyClient(discord.Client):
                 )
                 return
 
-            embed = discord.Embed(
-                title="✦ Resultado da Energia Amaldiçoada",
-                color=COLOR
-            )
-
-            embed.add_field(
-                name="Usuário",
-                value=message.author.mention,
-                inline=False
-            )
-
-            embed.add_field(
-                name="Energia Obtida",
-                value=f"⚫ {resultado['nome']}",
-                inline=False
-            )
-
-            embed.add_field(
-                name="Descrição",
-                value=resultado["descricao"],
-                inline=False
-            )
-
-            embed.set_image(
-                url=resultado["imagem"]
-            )
-
-            await message.channel.send(embed=embed)
+            await message.channel.send(embed=energia_embed(message.author, resultado))
 
         elif command in ("blackflash", "black_flash"):
             if not message.mentions:
@@ -1366,8 +1424,13 @@ class MyClient(discord.Client):
                 return
             membro = message.mentions[0]
             energia = " ".join(args[1:])
-            set_profile_text(message.guild.id, membro.id, "cursed_energy", energia)
-            await message.channel.send(f"Energia de {membro.mention} alterada para **{energia}**.")
+            nivel = energia_por_nome(energia)
+            if not nivel:
+                nomes = ", ".join(f"`{e['nome']}`" for e in CURSED_ENERGY_LEVELS)
+                await message.channel.send(f"Nível desconhecido. Use um destes: {nomes}.")
+                return
+            set_profile_energy(message.guild.id, membro.id, nivel["nome"], nivel["valor"])
+            await message.channel.send(f"Energia de {membro.mention} alterada para **{nivel['nome']}** (valor **{nivel['valor']}**).")
 
         elif command in ("removerenergia", "remover_energia"):
             if not admin:
@@ -1377,7 +1440,7 @@ class MyClient(discord.Client):
                 await message.channel.send(f"Uso: `{prefix}removerenergia @membro`.")
                 return
             membro = message.mentions[0]
-            set_profile_text(message.guild.id, membro.id, "cursed_energy", None)
+            set_profile_energy(message.guild.id, membro.id, None, 0)
             await message.channel.send(f"Energia amaldiçoada removida de {membro.mention}.")
 
 bot = MyClient()
@@ -1486,7 +1549,13 @@ async def vagas_restaurar(interaction: discord.Interaction, codigo: str):
 @bot.tree.command(name="status", description="Mostra atributos e moedas")
 async def status(interaction: discord.Interaction, membro: discord.Member | None = None):
     member = membro or interaction.user; p = profile(interaction.guild_id, member.id)
-    await interaction.response.send_message(embed=discord.Embed(title=f"⚔️ Status de {member.display_name}", description=f"Pontos livres: **{p['points']}**\nForça: **{p['strength']}** · Defesa: **{p['defense']}** · Energia: **{p['energy']}**\nSaldo: **{p['balance']}** moedas", color=COLOR))
+    descricao = (
+        f"Pontos livres: **{p['points']}**\n"
+        f"Força: **{p['strength']}** · Defesa: **{p['defense']}** · Energia: **{p['energy']}**\n"
+        f"Energia Amaldiçoada: {descricao_energia(p)}\n"
+        f"Saldo: **{p['balance']}** moedas"
+    )
+    await interaction.response.send_message(embed=discord.Embed(title=f"⚔️ Status de {member.display_name}", description=descricao, color=COLOR))
 
 
 @bot.tree.command(name="status_investir", description="Investe um ponto em um atributo")
@@ -1520,17 +1589,37 @@ async def remover_rolls(interaction: discord.Interaction, membro: discord.Member
     await interaction.response.send_message(f"Removidos **{quantidade}** rolls de {membro.mention}.")
 
 
+@bot.tree.command(name="energia", description="Gera uma nova Energia Amaldiçoada (gasta 1 roll)")
+async def energia(interaction: discord.Interaction):
+    resultado = criar_roll(interaction.guild_id, interaction.user.id)
+    if resultado is None:
+        await respond(interaction, "❌ Você não possui mais rolls disponíveis.")
+        return
+    await respond(interaction, embed=energia_embed(interaction.user, resultado))
+
+
+@bot.tree.command(name="rolls", description="Mostra quantos rolls você possui")
+async def rolls(interaction: discord.Interaction):
+    quantidade = quantidade_rolls(interaction.guild_id, interaction.user.id)
+    await respond(interaction, f"🎲 {interaction.user.mention}, você possui **{quantidade} rolls**.")
+
+
 @bot.tree.command(name="dar_energia", description="[Admin] Define a energia amaldiçoada de um membro")
 @app_commands.check(admin_only)
-async def dar_energia(interaction: discord.Interaction, membro: discord.Member, energia: str):
-    set_profile_text(interaction.guild_id, membro.id, "cursed_energy", energia)
-    await interaction.response.send_message(f"Energia de {membro.mention} alterada para **{energia}**.")
+@app_commands.choices(energia=[app_commands.Choice(name=e["nome"], value=e["nome"]) for e in CURSED_ENERGY_LEVELS])
+async def dar_energia(interaction: discord.Interaction, membro: discord.Member, energia: app_commands.Choice[str]):
+    nivel = energia_por_nome(energia.value)
+    if not nivel:
+        await interaction.response.send_message("Nível de energia desconhecido.")
+        return
+    set_profile_energy(interaction.guild_id, membro.id, nivel["nome"], nivel["valor"])
+    await interaction.response.send_message(f"Energia de {membro.mention} alterada para **{nivel['nome']}** (valor **{nivel['valor']}**).")
 
 
 @bot.tree.command(name="remover_energia", description="[Admin] Remove a energia amaldiçoada de um membro")
 @app_commands.check(admin_only)
 async def remover_energia(interaction: discord.Interaction, membro: discord.Member):
-    set_profile_text(interaction.guild_id, membro.id, "cursed_energy", None)
+    set_profile_energy(interaction.guild_id, membro.id, None, 0)
     await interaction.response.send_message(f"Energia amaldiçoada removida de {membro.mention}.")
 
 
